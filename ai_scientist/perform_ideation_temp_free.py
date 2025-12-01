@@ -192,12 +192,21 @@ def generate_temp_free_idea(
                     )
 
                     if not all([action_match, arguments_match]):
+                        # Cigdem: debug print to see raw LLM output when parsing fails
+                        print("===== DEBUG RAW LLM RESPONSE (FAILED TO PARSE) =====")
+                        print(response_text)
+                        print("===== END DEBUG RAW LLM RESPONSE =====")
                         raise ValueError("Failed to parse the LLM response.")
 
-                    action = action_match.group(1).strip()
+
+                    # Cigdem: make ACTION robust by taking only the first line
+                    raw_action = action_match.group(1).strip()
+                    action = raw_action.splitlines()[0].strip()
+
                     arguments_text = arguments_match.group(1).strip()
                     print(f"Action: {action}")
                     print(f"Arguments: {arguments_text}")
+
 
                     # If arguments are wrapped in ```json blocks, extract the content
                     if arguments_text.startswith("```json"):
@@ -222,21 +231,35 @@ def generate_temp_free_idea(
                             last_tool_results = result
                         except Exception as e:
                             last_tool_results = f"Error using tool {action}: {str(e)}"
-                    elif action == "FinalizeIdea":
-                        # Parse arguments
-                        try:
-                            arguments_json = json.loads(arguments_text)
-                            idea = arguments_json.get("idea")
-                            if not idea:
-                                raise ValueError("Missing 'idea' in arguments.")
+                            elif action == "FinalizeIdea":
+                            # Cigdem: parse arguments robustly
+                            try:
+                                try:
+                                    # First, try direct JSON load
+                                    arguments_json = json.loads(arguments_text)
+                                except json.JSONDecodeError:
+                                    # Try to extract the first {...} block if the model added extra text
+                                    match = re.search(r"\{.*\}", arguments_text, re.DOTALL)
+                                    if match:
+                                        arguments_json = json.loads(match.group(0))
+                                    else:
+                                        print("===== DEBUG FinalizeIdea arguments_text (FAILED TO PARSE) =====")
+                                        print(arguments_text)
+                                        print("===== END DEBUG FinalizeIdea =====")
+                                        raise
 
-                            # Append the idea to the archive
-                            idea_str_archive.append(json.dumps(idea))
-                            print(f"Proposal finalized: {idea}")
-                            idea_finalized = True
-                            break
-                        except json.JSONDecodeError:
-                            raise ValueError("Invalid arguments JSON for FinalizeIdea.")
+                                idea = arguments_json.get("idea")
+                                if not idea:
+                                    raise ValueError("Missing 'idea' in arguments.")
+
+                                # Append the idea to the archive
+                                idea_str_archive.append(json.dumps(idea))
+                                print(f"Proposal finalized: {idea}")
+                                idea_finalized = True
+                                break
+                            except Exception:
+                                raise ValueError("Invalid arguments JSON for FinalizeIdea.")
+
                     else:
                         print(
                             "Invalid action. Please specify one of the available tools."
