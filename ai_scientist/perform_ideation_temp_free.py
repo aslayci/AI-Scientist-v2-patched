@@ -218,6 +218,7 @@ def generate_temp_free_idea(
                     if action in tools_dict:
                         # It's a tool we have defined
                         tool = tools_dict[action]
+
                         # Parse arguments
                         try:
                             arguments_json = json.loads(arguments_text)
@@ -226,45 +227,47 @@ def generate_temp_free_idea(
 
                         # Use the tool
                         try:
-                            # Assuming the arguments match the parameters of the tool
                             result = tool.use_tool(**arguments_json)
                             last_tool_results = result
                         except Exception as e:
                             last_tool_results = f"Error using tool {action}: {str(e)}"
-                            elif action == "FinalizeIdea":
-                            # Cigdem: parse arguments robustly
+
+                    elif action == "FinalizeIdea":
+                        # Cigdem: parse arguments robustly
+                        try:
                             try:
-                                try:
-                                    # First, try direct JSON load
-                                    arguments_json = json.loads(arguments_text)
-                                except json.JSONDecodeError:
-                                    # Try to extract the first {...} block if the model added extra text
-                                    match = re.search(r"\{.*\}", arguments_text, re.DOTALL)
-                                    if match:
-                                        arguments_json = json.loads(match.group(0))
-                                    else:
-                                        print("===== DEBUG FinalizeIdea arguments_text (FAILED TO PARSE) =====")
-                                        print(arguments_text)
-                                        print("===== END DEBUG FinalizeIdea =====")
-                                        raise
+                                # First attempt
+                                arguments_json = json.loads(arguments_text)
+                            except json.JSONDecodeError:
+                                # If model added extra text, extract the JSON block
+                                match = re.search(r"\{.*\}", arguments_text, re.DOTALL)
+                                if match:
+                                    arguments_json = json.loads(match.group(0))
+                                else:
+                                    print("===== DEBUG FinalizeIdea arguments_text (FAILED TO PARSE) =====")
+                                    print(arguments_text)
+                                    print("===== END DEBUG FinalizeIdea =====")
+                                    raise
 
-                                idea = arguments_json.get("idea")
-                                if not idea:
-                                    raise ValueError("Missing 'idea' in arguments.")
+                            idea = arguments_json.get("idea")
+                            if not idea:
+                                raise ValueError("Missing 'idea' in arguments.")
 
-                                # Append the idea to the archive
-                                idea_str_archive.append(json.dumps(idea))
-                                print(f"Proposal finalized: {idea}")
-                                idea_finalized = True
-                                break
-                            except Exception:
-                                raise ValueError("Invalid arguments JSON for FinalizeIdea.")
+                            idea_str_archive.append(json.dumps(idea))
+                            print(f"Proposal finalized: {idea}")
+                            idea_finalized = True
+                            break
+
+                        except Exception:
+                            raise ValueError("Invalid arguments JSON for FinalizeIdea.")
 
                     else:
-                        print(
-                            "Invalid action. Please specify one of the available tools."
-                        )
+                        print("Invalid action. Please specify one of the available tools.")
                         print(f"Available actions are: {tool_names_str}")
+
+
+
+
                 except Exception as e:
                     print(
                         f"Failed to parse LLM response. Response text:\n{response_text}"
