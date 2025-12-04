@@ -226,12 +226,39 @@ def perform_experiments_bfts(config_path: str):
 
     if cfg.generate_report:
         print("Generating final report from all stages...")
-        (
-            draft_summary,
-            baseline_summary,
-            research_summary,
-            ablation_summary,
-        ) = overall_summarize(manager.journals.items(), cfg)
+        # Cigdem: robust overall summarization – handle fewer than 4 outputs
+        # Cigdem: robust overall summarization – handle 1 or 4 outputs
+        summaries = overall_summarize(manager.journals.items(), cfg)
+
+        # Default values
+        draft_summary = None
+        baseline_summary = None
+        research_summary = None
+        ablation_summary = None
+
+        if isinstance(summaries, (list, tuple)):
+            if len(summaries) == 4:
+                draft_summary, baseline_summary, research_summary, ablation_summary = summaries
+            elif len(summaries) == 1:
+                print(
+                    "Cigdem: overall_summarize returned 1 item instead of 4; "
+                    "using it as research_summary only."
+                )
+                research_summary = summaries[0]
+            else:
+                print(
+                    f"Cigdem: overall_summarize returned {len(summaries)} items; "
+                    "padding / truncating to 4."
+                )
+                padded = list(summaries) + [None] * (4 - len(summaries))
+                draft_summary, baseline_summary, research_summary, ablation_summary = padded[:4]
+        else:
+            print(
+                "Cigdem: overall_summarize returned a non-sequence; "
+                "using it as research_summary."
+            )
+            research_summary = summaries
+
         draft_summary_path = cfg.log_dir / "draft_summary.json"
         baseline_summary_path = cfg.log_dir / "baseline_summary.json"
         research_summary_path = cfg.log_dir / "research_summary.json"

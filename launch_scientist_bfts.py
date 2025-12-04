@@ -2,7 +2,13 @@ import os.path as osp
 import json
 import argparse
 import shutil
-import torch
+
+# Cigdem: make torch optional (marvin2 has broken PyTorch libs)
+try:
+    import torch
+except Exception:
+    torch = None
+
 import os
 import re
 import sys
@@ -132,10 +138,14 @@ def parse_arguments():
 
 
 def get_available_gpus(gpu_ids=None):
+    # Cigdem: if user explicitly passes GPU IDs, trust that
     if gpu_ids is not None:
         return [int(gpu_id) for gpu_id in gpu_ids.split(",")]
-    return list(range(torch.cuda.device_count()))
-
+    # Cigdem: if torch is available AND CUDA is available, use real GPUs
+    if torch is not None and hasattr(torch, "cuda") and torch.cuda.is_available():
+        return list(range(torch.cuda.device_count()))
+    # Cigdem: fallback – no working torch / CUDA → CPU-only run
+    return []
 
 def find_pdf_path_for_review(idea_dir):
     pdf_files = [f for f in os.listdir(idea_dir) if f.endswith(".pdf")]
@@ -262,9 +272,15 @@ if __name__ == "__main__":
             dirs_exist_ok=True,
         )
 
-    aggregate_plots(base_folder=idea_dir, model=args.model_agg_plots)
+    # Cigdem: disable plot aggregation for now! because summaries may be None -- patch the code later to deal with plot generation 
+    #aggregate_plots(base_folder=idea_dir, model=args.model_agg_plots)
 
-    shutil.rmtree(osp.join(idea_dir, "experiment_results"))
+    # Cigdem: only delete experiment_results if it exists
+    exp_results_dir = osp.join(idea_dir, "experiment_results")
+    if osp.exists(exp_results_dir):
+        shutil.rmtree(exp_results_dir)
+    else:
+        print(f"Cigdem: experiment_results folder not found, skipping delete: {exp_results_dir}")
 
     save_token_tracker(idea_dir)
 
@@ -319,51 +335,52 @@ if __name__ == "__main__":
             print("Paper review completed.")
 
     print("Start cleaning up processes")
-    # Kill all mp and torch processes associated with this experiment
-    import psutil
+
+    # Cigdem: make psutil optional (used only for resource cleanup)
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+
     import signal
 
-    # Get the current process and all its children
-    current_process = psutil.Process()
-    children = current_process.children(recursive=True)
+    if psutil is not None:
+        # Get the current process and all its children
+        current_process = psutil.Process()
+        children = current_process.children(recursive=True)
 
-    # First try graceful termination
-    for child in children:
-        try:
-            child.send_signal(signal.SIGTERM)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+        # First try graceful termination
+        for child in children:
+            try:
+                child.send_signal(signal.SIGTERM)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
 
-    # Wait briefly for processes to terminate
-    gone, alive = psutil.wait_procs(children, timeout=3)
+        # Wait briefly for processes to terminate
+        gone, alive = psutil.wait_procs(children, timeout=3)
 
-    # If any processes remain, force kill them
-    for process in alive:
-        try:
-            process.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+        # If any processes remain, force kill them
+        for process in alive:
+            try:
+                process.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
 
-    # Additional cleanup: find any orphaned processes containing specific keywords
-    keywords = ["python", "torch", "mp", "bfts", "experiment"]
-    for proc in psutil.process_iter(["name", "cmdline"]):
-        try:
-            # Check both process name and command line arguments
-            cmdline = " ".join(proc.cmdline()).lower()
-            if any(keyword in cmdline for keyword in keywords):
-                proc.send_signal(signal.SIGTERM)
-                proc.wait(timeout=3)
-                if proc.is_running():
-                    proc.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
-            continue
+        # Additional cleanup: orphaned processes
+        keywords = ["python", "torch", "mp", "bfts", "experiment"]
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                cmdline = " ".join(proc.cmdline()).lower()
+                if any(keyword in cmdline for keyword in keywords):
+                    proc.send_signal(signal.SIGTERM)
+                    proc.wait(timeout=3)
+                    if proc.is_running():
+                        proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                continue
 
-    # Finally, terminate the current process
-    # current_process.send_signal(signal.SIGTERM)
-    # try:
-    #     current_process.wait(timeout=3)
-    # except psutil.TimeoutExpired:
-    #     current_process.kill()
+    else:
+        print("Cigdem: psutil not installed; skipping process cleanup.")
 
     # exit the program
     sys.exit(0)

@@ -356,7 +356,34 @@ def overall_summarize(journals, cfg=None):
                 total=len(list(journals)),
             )
         )
-        draft_summary, baseline_summary, research_summary, ablation_summary = results
+        # Cigdem: robust unpack – handle 1, 4, or other counts
+        draft_summary = None
+        baseline_summary = None
+        research_summary = None
+        ablation_summary = None
+
+        if isinstance(results, (list, tuple)):
+            if len(results) == 4:
+                draft_summary, baseline_summary, research_summary, ablation_summary = results
+            elif len(results) == 1:
+                print(
+                    "Cigdem: overall_summarize got 1 item instead of 4; "
+                    "using it as research_summary only."
+                )
+                research_summary = results[0]
+            else:
+                print(
+                    f"Cigdem: overall_summarize got {len(results)} items; "
+                    "padding/truncating to 4."
+                )
+                padded = list(results) + [None] * (4 - len(results))
+                draft_summary, baseline_summary, research_summary, ablation_summary = padded[:4]
+        else:
+            print(
+                "Cigdem: overall_summarize got a non-sequence result; "
+                "using it as research_summary."
+            )
+            research_summary = results
 
     return draft_summary, baseline_summary, research_summary, ablation_summary
 
